@@ -1,0 +1,190 @@
+{
+  "summary": {
+    "processing_date": "2025-08-03T22:27:38.309225",
+    "files_processed": 9,
+    "total_emissions_kg_co2e": 19520.56,
+    "document_types": {
+      "electricity_bill": 4,
+      "gas_bill": 5
+    },
+    "energy_breakdown": {
+      "electricity": {
+        "total_amount": 41540.0,
+        "total_emissions": 16616.0,
+        "count": 4
+      },
+      "gasoline": {
+        "total_amount": 49.5,
+        "total_emissions": 440.06,
+        "count": 3
+      },
+      "natural_gas": {
+        "total_amount": 465.0,
+        "total_emissions": 2464.5,
+        "count": 4
+      }
+    },
+    "high_confidence_extractions": 5,
+    "confidence_percentage": 45.5
+  },
+  "detailed_results": [
+    {
+      "filename": "electric_bill_1.png",
+      "extraction_date": "2025-08-03T22:27:38.304424",
+      "raw_text_preview": "\n            ELECTRIC UTILITY COMPANY\n            Monthly Energy Statement\n            Account: 123456789\n            Service Period: 01/15/2024 - 02/15/2024\n            \n            ELECTRICITY USAGE...",
+      "extracted_data": {
+        "electricity": {
+          "amount": 13680.0,
+          "unit": "kWh",
+          "emissions_kg_co2e": 5472.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?kWh",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 5472.0,
+      "document_type": "electricity_bill"
+    },
+    {
+      "filename": "electric_bill_2.png",
+      "extraction_date": "2025-08-03T22:27:38.307066",
+      "raw_text_preview": "\n            ELECTRIC UTILITY COMPANY\n            Monthly Energy Statement\n            Account: 123456789\n            Service Period: 01/15/2024 - 02/15/2024\n            \n            ELECTRICITY USAGE...",
+      "extracted_data": {
+        "electricity": {
+          "amount": 13680.0,
+          "unit": "kWh",
+          "emissions_kg_co2e": 5472.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?kWh",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 5472.0,
+      "document_type": "electricity_bill"
+    },
+    {
+      "filename": "electric_bill_3.png",
+      "extraction_date": "2025-08-03T22:27:38.307066",
+      "raw_text_preview": "\n            ELECTRIC UTILITY COMPANY\n            Monthly Energy Statement\n            Account: 123456789\n            Service Period: 01/15/2024 - 02/15/2024\n            \n            ELECTRICITY USAGE...",
+      "extracted_data": {
+        "electricity": {
+          "amount": 13680.0,
+          "unit": "kWh",
+          "emissions_kg_co2e": 5472.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?kWh",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 5472.0,
+      "document_type": "electricity_bill"
+    },
+    {
+      "filename": "fuel_receipt_1.png",
+      "extraction_date": "2025-08-03T22:27:38.307066",
+      "raw_text_preview": "\n            FUEL STATION RECEIPT\n            Date: 02/15/2024 14:30\n            Transaction: 789012\n            \n            Product: Regular Gasoline\n            Gallons: 18.5\n            Price/Gall...",
+      "extracted_data": {
+        "gasoline": {
+          "amount": 18.5,
+          "unit": "gallons",
+          "emissions_kg_co2e": 164.47,
+          "extraction_pattern": "gallons?:?\\s*(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)",
+          "confidence": "high"
+        }
+      },
+      "total_emissions": 164.47,
+      "document_type": "gas_bill"
+    },
+    {
+      "filename": "fuel_receipt_2.png",
+      "extraction_date": "2025-08-03T22:27:38.308144",
+      "raw_text_preview": "\n            FUEL STATION RECEIPT\n            Date: 02/15/2024 14:30\n            Transaction: 789012\n            \n            Product: Regular Gasoline\n            Gallons: 18.5\n            Price/Gall...",
+      "extracted_data": {
+        "gasoline": {
+          "amount": 18.5,
+          "unit": "gallons",
+          "emissions_kg_co2e": 164.47,
+          "extraction_pattern": "gallons?:?\\s*(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)",
+          "confidence": "high"
+        }
+      },
+      "total_emissions": 164.47,
+      "document_type": "gas_bill"
+    },
+    {
+      "filename": "gas_bill_1.png",
+      "extraction_date": "2025-08-03T22:27:38.308144",
+      "raw_text_preview": "\n            NATURAL GAS COMPANY\n            Gas Service Statement\n            Account: 987654321\n            Billing Period: 01/15/2024 - 02/15/2024\n            \n            NATURAL GAS USAGE\n       ...",
+      "extracted_data": {
+        "natural_gas": {
+          "amount": 130.0,
+          "unit": "therms",
+          "emissions_kg_co2e": 689.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?therms?",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 689.0,
+      "document_type": "gas_bill"
+    },
+    {
+      "filename": "gas_bill_2.png",
+      "extraction_date": "2025-08-03T22:27:38.308144",
+      "raw_text_preview": "\n            NATURAL GAS COMPANY\n            Gas Service Statement\n            Account: 987654321\n            Billing Period: 01/15/2024 - 02/15/2024\n            \n            NATURAL GAS USAGE\n       ...",
+      "extracted_data": {
+        "natural_gas": {
+          "amount": 130.0,
+          "unit": "therms",
+          "emissions_kg_co2e": 689.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?therms?",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 689.0,
+      "document_type": "gas_bill"
+    },
+    {
+      "filename": "gas_bill_3.png",
+      "extraction_date": "2025-08-03T22:27:38.308144",
+      "raw_text_preview": "\n            NATURAL GAS COMPANY\n            Gas Service Statement\n            Account: 987654321\n            Billing Period: 01/15/2024 - 02/15/2024\n            \n            NATURAL GAS USAGE\n       ...",
+      "extracted_data": {
+        "natural_gas": {
+          "amount": 130.0,
+          "unit": "therms",
+          "emissions_kg_co2e": 689.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?therms?",
+          "confidence": "medium"
+        }
+      },
+      "total_emissions": 689.0,
+      "document_type": "gas_bill"
+    },
+    {
+      "filename": "raw_images.png",
+      "extraction_date": "2025-08-03T22:27:38.309225",
+      "raw_text_preview": "Sample document text with various numbers: 500 kWh, 75 therms, 12.5 gallons",
+      "extracted_data": {
+        "electricity": {
+          "amount": 500.0,
+          "unit": "kWh",
+          "emissions_kg_co2e": 200.0,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?kWh",
+          "confidence": "high"
+        },
+        "natural_gas": {
+          "amount": 75.0,
+          "unit": "therms",
+          "emissions_kg_co2e": 397.5,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*(?:total\\s+)?therms?",
+          "confidence": "high"
+        },
+        "gasoline": {
+          "amount": 12.5,
+          "unit": "gallons",
+          "emissions_kg_co2e": 111.12,
+          "extraction_pattern": "(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{1,2})?)\\s*gallons?",
+          "confidence": "high"
+        }
+      },
+      "total_emissions": 708.62,
+      "document_type": "electricity_bill"
+    }
+  ]
+}
