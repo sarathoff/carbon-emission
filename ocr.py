@@ -198,11 +198,11 @@ class CloudCarbonExtractor:
         results = []
         supported_formats = ['.jpg', '.jpeg', '.png', '.tiff', '.bmp']
         
-        print(f"🚀 Processing directory: {input_dir}")
+        print(f"Processing directory: {input_dir}")
         
         for filename in os.listdir(input_dir):
             if any(filename.lower().endswith(fmt) for fmt in supported_formats):
-                print(f"📄 Processing: {filename}")
+                print(f"Processing: {filename}")
                 image_path = os.path.join(input_dir, filename)
                 
                 # Extract text with cloud OCR
@@ -213,14 +213,14 @@ class CloudCarbonExtractor:
                     results.append(result)
                     
                     # Print immediate results
-                    print(f"  ✅ Type: {result['document_type']}")
-                    print(f"  📊 Emissions: {result['total_emissions']} kg CO₂e")
+                    print(f"  Type: {result['document_type']}")
+                    print(f"  Emissions: {result['total_emissions']} kg CO₂e")
                     
                     for energy_type, data in result['extracted_data'].items():
                         print(f"    • {energy_type}: {data['amount']} {data['unit']} ({data['confidence']} confidence)")
                     print()
                 else:
-                    print(f"  ❌ No text extracted from {filename}")
+                    print(f"  No text extracted from {filename}")
         
         return results
     
@@ -272,7 +272,7 @@ class CloudCarbonExtractor:
 # ULTRA-FAST DEMO SCRIPT
 def run_fast_demo():
     """Complete demo in under 2 minutes"""
-    print("🚀 STARTING ULTRA-FAST CARBON ACCOUNTING DEMO")
+    print("STARTING ULTRA-FAST CARBON ACCOUNTING DEMO")
     print("=" * 50)
     
     # Step 1: Generate synthetic data (30 seconds)
@@ -296,22 +296,22 @@ def run_fast_demo():
     
     # Step 4: Display results
     print("\n" + "=" * 50)
-    print("🎯 FINAL RESULTS:")
+    print("FINAL RESULTS:")
     print(f"Files Processed: {summary['files_processed']}")
     print(f"Total Emissions: {summary['total_emissions_kg_co2e']} kg CO₂e")
     print(f"Confidence: {summary['confidence_percentage']}% high confidence")
     
-    print("\n📊 Energy Breakdown:")
+    print("\nEnergy Breakdown:")
     for energy_type, data in summary['energy_breakdown'].items():
         print(f"  • {energy_type.title()}: {data['total_emissions']:.2f} kg CO₂e "
               f"({data['count']} documents)")
     
-    print("\n📋 Document Types:")
+    print("\nDocument Types:")
     for doc_type, count in summary['document_types'].items():
         print(f"  • {doc_type.replace('_', ' ').title()}: {count}")
     
-    print(f"\n💾 Detailed results saved to: outputs/fast_extraction_results.json")
-    print("\n🚀 DEMO COMPLETE! Run 'streamlit run streamlit_app.py' for web interface")
+    print(f"\nDetailed results saved to: outputs/fast_extraction_results.json")
+    print("\nDEMO COMPLETE! Run 'streamlit run streamlit_app.py' for web interface")
 
 if __name__ == "__main__":
     run_fast_demo()

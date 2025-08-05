@@ -132,7 +132,7 @@ def generate_sample_dataset():
     os.makedirs("data/raw_images", exist_ok=True)
     os.makedirs("outputs", exist_ok=True)
     
-    print("🎯 Generating synthetic energy documents...")
+    print("Generating synthetic energy documents...")
     
     # Generate 10 sample documents
     expected_emissions = 0
@@ -154,11 +154,8 @@ def generate_sample_dataset():
         gallons, fuel_type = generator.generate_fuel_receipt(f"data/raw_images/fuel_receipt_{i+1}.png")
         expected_emissions += gallons * 8.89  # Approximate for gasoline
         print(f"Generated fuel_receipt_{i+1}.png - {gallons} gallons {fuel_type}")
-    
-    print(f"\n✅ Generated 8 sample documents")
-    print(f"📊 Expected total emissions: ~{expected_emissions:.2f} kg CO₂e")
-    print(f"📁 Files saved to: data/raw_images/")
-    print("\n🚀 Now run: python carbon_pipeline_day1.py")
 
-if __name__ == "__main__":
-    generate_sample_dataset()
+    print("\nGenerated 8 sample documents")
+    print(f"Expected total emissions: ~{expected_emissions:.2f} kg CO₂e")
+    print(f"Files saved to: data/raw_images/")
+    print("\nNow run: python carbon_pipeline_day1.py")
