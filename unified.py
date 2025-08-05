@@ -1,885 +1,838 @@
-# complete_carbon_accounting_system.py
-# AI FOR INDUSTRIAL CARBON ACCOUNTING - FIXED AND ENHANCED VERSION
-# Addresses all requirements: OCR, BERT fine-tuning, GHG calculations, ISO 14064 compliance
-
 import streamlit as st
-import pandas as pd
-import numpy as np
-import json
-import os
-import tempfile
-from datetime import datetime, timedelta
+import pytesseract
 import re
-from pathlib import Path
-import warnings
-warnings.filterwarnings('ignore')
+import pandas as pd
+from PIL import Image
+import os
+from dotenv import load_dotenv
 
-# Core libraries
-try:
-    import pytesseract
-    from PIL import Image
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
-
+load_dotenv() # Load environment variables from .env file
+from datetime import datetime
+import json
+import io
+from transformers import pipeline
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import google.generativeai as genai
+from typing import Dict, List, Any, Optional
+import logging
 
-# BERT/Transformers
-try:
-    import torch
-    from transformers import (
-        AutoTokenizer, AutoModelForTokenClassification,
-        AutoModelForQuestionAnswering, pipeline,
-        TrainingArguments, Trainer,
-        DataCollatorForTokenClassification
-    )
-    from datasets import Dataset
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# PDF generation
-try:
-    from reportlab.lib.pagesizes import letter, A4
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib import colors
-    from reportlab.lib.units import inch
-    REPORTLAB_AVAILABLE = True
-except ImportError:
-    REPORTLAB_AVAILABLE = False
+# --- Configuration ---
+class Config:
+    """Application configuration"""
+    EMISSION_FACTORS = {
+        'electricity': 0.4,  # kg CO2e per kWh
+        'natural_gas': 5.3,  # kg CO2e per therm
+        'gasoline': 8.89,    # kg CO2e per gallon
+        'diesel': 10.21,     # kg CO2e per gallon
+        'coal': 2.23,        # kg CO2e per pound
+        'propane': 5.75,     # kg CO2e per gallon
+        'heating_oil': 10.15, # kg CO2e per gallon
+        'jet_fuel': 9.57     # kg CO2e per gallon
+    }
+    
+    UNIT_PATTERNS = {
+        'kwh': 'electricity',
+        'kilowatt': 'electricity',
+        'therm': 'natural_gas',
+        'mcf': 'natural_gas',
+        'ccf': 'natural_gas',
+        'gallon': 'gasoline',
+        'gal': 'gasoline',
+        'liter': 'gasoline',
+        'btu': 'natural_gas'
+    }
 
-class IndustrialCarbonAccountingSystem:
-    """
-    Complete AI system for industrial carbon emissions auditing
-    Implements full NLP pipeline with BERT, OCR, and ISO 14064 compliance
-    """
+# --- Enhanced NLP Pipeline ---
+@st.cache_resource
+def load_models():
+    """Load NLP models with caching"""
+    try:
+        ner_pipeline = pipeline("ner", model="dslim/bert-base-NER", grouped_entities=True)
+        return ner_pipeline
+    except Exception as e:
+        logger.error(f"Error loading models: {e}")
+        return None
+
+# --- Gemini Integration ---
+class GeminiAnalyst:
+    """Integrates Google Gemini for intelligent data analysis"""
     
     def __init__(self):
-        self.system_name = "AI Industrial Carbon Accounting System"
-        self.version = "1.0.1"  # Updated version
-        self.processing_date = datetime.now()
-        
-        # Initialize components
-        self._initialize_emission_factors()
-        self._initialize_compliance_standards()
-        self._initialize_bert_models()
-        
-        # Tracking metrics
-        self.total_documents_processed = 0
-        self.total_emissions_calculated = 0.0
-        self.confidence_scores = []
-        
-    def _initialize_emission_factors(self):
-        """Initialize GHG Protocol and EPA emission factors (kg CO₂e per unit)"""
-        
-        # Scope 1 & 2 Emission Factors (GHG Protocol)
-        self.emission_factors = {
-            # Electricity (varies by grid, using US average)
-            'electricity_kwh': 0.4,  # kg CO₂e per kWh
-            'electricity_mwh': 400,  # kg CO₂e per MWh
-            
-            # Natural Gas
-            'natural_gas_therm': 5.3,  # kg CO₂e per therm
-            'natural_gas_ccf': 5.3,   # kg CO₂e per CCF (≈ 1 therm)
-            'natural_gas_m3': 1.88,   # kg CO₂e per cubic meter
-            
-            # Liquid Fuels
-            'gasoline_gallon': 8.89,   # kg CO₂e per gallon
-            'gasoline_liter': 2.35,    # kg CO₂e per liter
-            'diesel_gallon': 10.21,    # kg CO₂e per gallon
-            'diesel_liter': 2.70,      # kg CO₂e per liter
-            'fuel_oil_gallon': 11.26,  # kg CO₂e per gallon
-            'heating_oil_gallon': 11.26,
-            'jet_fuel_gallon': 9.75,
-            'propane_gallon': 5.75,
-            
-            # Coal and Solid Fuels
-            'coal_pound': 2.23,        # kg CO₂e per pound
-            'coal_ton': 4460,          # kg CO₂e per short ton
-            'wood_pound': 1.87,        # kg CO₂e per pound
-            
-            # Steam and Heat
-            'steam_pound': 0.35,       # kg CO₂e per pound
-            'chilled_water_ton_hour': 0.12,  # kg CO₂e per ton-hour
-            
-            # Process emissions (examples)
-            'cement_ton': 920,         # kg CO₂e per ton cement
-            'steel_ton': 2100,         # kg CO₂e per ton steel
-        }
-        
-        # Uncertainty factors for different measurement methods
-        self.uncertainty_factors = {
-            'direct_measurement': 0.02,    # ±2% uncertainty
-            'invoice_based': 0.05,         # ±5% uncertainty  
-            'estimated': 0.15,             # ±15% uncertainty
-            'default_factor': 0.10         # ±10% uncertainty
-        }
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if api_key:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('gemini-pro')
+        else:
+            self.model = None
     
-    def _initialize_compliance_standards(self):
-        """Initialize ISO 14064 and GHG Protocol compliance rules"""
-        
-        self.iso_14064_requirements = {
-            # ISO 14064-1 Organizational reporting requirements
-            'organizational_boundaries': {
-                'required': True,
-                'description': 'Clear definition of organizational boundaries'
-            },
-            'operational_boundaries': {
-                'required': True,
-                'description': 'Classification of direct and indirect emissions'
-            },
-            'base_year': {
-                'required': True,
-                'description': 'Establishment of base year for comparisons'
-            },
-            'materiality_threshold': {
-                'value': 0.05,  # 5% materiality threshold
-                'description': 'Emissions sources >5% of total must be included'
-            },
-            'uncertainty_reporting': {
-                'required': True,
-                'max_uncertainty': 0.15,  # Max 15% uncertainty for key categories
-                'description': 'Quantitative uncertainty assessment required'
-            },
-            'verification_requirements': {
-                'scope_1_2_threshold': 25000,  # tCO₂e requiring verification
-                'third_party_required': True,
-                'description': 'Third-party verification for emissions >25,000 tCO₂e'
-            }
-        }
-        
-        # GHG Protocol compliance checks
-        self.ghg_protocol_checks = {
-            'completeness': 'All material emission sources included',
-            'consistency': 'Consistent methodologies across reporting periods',
-            'transparency': 'Clear documentation of methods and assumptions',
-            'accuracy': 'Reduction of bias and uncertainties',
-            'relevance': 'Reflects GHG emissions of organization appropriately'
-        }
-        
-        # Data quality flags
-        self.quality_flags = {
-            'HIGH_UNCERTAINTY': 'Uncertainty >15%',
-            'MISSING_DATA': 'Required data fields missing',
-            'INCONSISTENT_UNITS': 'Unit conversion issues detected',
-            'OUTLIER_VALUE': 'Value outside expected range',
-            'LOW_CONFIDENCE': 'AI extraction confidence <70%',
-            'UNVERIFIED_SOURCE': 'Document source not verified'
-        }
+    def analyze_emissions_data(self, results: List[Dict]) -> str:
+        """Analyze emissions data using Gemini with a structured prompt."""
+        if not self.model:
+            return "**AI Analyst Disabled:** Gemini API key not configured."
+
+        try:
+            total_emissions = sum(r.get('total_emissions', 0) for r in results)
+            energy_breakdown = {}
+            for result in results:
+                for energy_type, data in result.get('extracted_data', {}).items():
+                    if energy_type not in energy_breakdown:
+                        energy_breakdown[energy_type] = {'amount': 0, 'emissions': 0}
+                    energy_breakdown[energy_type]['amount'] += data.get('amount', 0)
+                    energy_breakdown[energy_type]['emissions'] += data.get('emissions_kg_co2e', 0)
+
+            prompt = f"""
+            You are an expert emissions analyst. Generate a professional, structured report based on the following data.
+            Use Markdown for formatting. Do not include any conversational introductory or concluding phrases.
+
+            **Input Data:**
+            - Total Emissions: {total_emissions:.2f} kg CO2e
+            - Number of documents processed: {len(results)}
+            - Energy Breakdown (kg CO2e):
+              {json.dumps(energy_breakdown, indent=2)}
+
+            **Report Structure:**
+
+            ### 1. Key Insights
+            - (Provide 3-5 bullet points highlighting the most important findings from the data.)
+
+            ### 2. Emission Reduction Recommendations
+            - (Provide a bulleted list of actionable recommendations based on the emissions breakdown.)
+
+            ### 3. Areas of Concern
+            - (Provide a bulleted list of potential issues or areas that require further investigation.)
+
+            ### 4. Benchmarking
+            - (Provide a brief comparison to typical emissions for a similar entity, if possible. State if not enough data is available for a direct comparison.)
+            """
+            
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Gemini analysis error: {e}")
+            return f"**Analysis Failed:** An error occurred while generating the AI analysis: {str(e)}"
     
-    def _initialize_bert_models(self):
-        """Initialize BERT models for document processing"""
-        
-        if not TRANSFORMERS_AVAILABLE:
-            st.warning("⚠️ Transformers not available. Install: pip install transformers torch")
-            self.bert_models = {}
-            return
+    def chat_about_data(self, user_question: str, results: List[Dict]) -> str:
+        """Handle user questions about the data"""
+        if not self.model:
+            return "Gemini API key not configured. Please add your API key to enable chat functionality."
         
         try:
-            st.info("🤖 Loading BERT models for carbon accounting...")
+            context = f"""
+            You are an expert emissions analyst. Here's the current data context:
             
-            # Initialize models dictionary
-            self.bert_models = {}
+            Total documents: {len(results)}
+            Total emissions: {sum(r.get('total_emissions', 0) for r in results):.2f} kg CO2e
             
-            # 1. Document Classification Model
-            self.bert_models['classifier'] = pipeline(
-                "zero-shot-classification",
-                model="facebook/bart-large-mnli",
-                device=-1  # CPU mode for compatibility
-            )
+            Data summary: {json.dumps([{
+                'file': r['filename'],
+                'emissions': r['total_emissions'],
+                'energy_types': list(r.get('extracted_data', {}).keys())
+            } for r in results], indent=2)}
             
-            # 2. Question Answering for data extraction
-            self.bert_models['qa'] = pipeline(
-                "question-answering", 
-                model="distilbert-base-cased-distilled-squad",
-                device=-1
-            )
+            User question: {user_question}
             
-            # 3. Named Entity Recognition
-            self.bert_models['ner'] = pipeline(
-                "ner",
-                model="dbmdz/bert-large-cased-finetuned-conll03-english",
-                aggregation_strategy="simple",
-                device=-1
-            )
+            Please provide a helpful, accurate response based on the data.
+            """
             
-            # 4. Fine-tuned model for carbon accounting (simulated)
-            self.fine_tuned_model = self._create_carbon_accounting_model()
-            
-            st.success("✅ BERT models loaded successfully")
-            
+            response = self.model.generate_content(context)
+            return response.text
         except Exception as e:
-            st.error(f"❌ Error loading BERT models: {e}")
-            self.bert_models = {}
+            logger.error(f"Chat error: {e}")
+            return f"Sorry, I couldn't process your question: {str(e)}"
+
+# --- Enhanced Extractor ---
+class AdvancedCarbonExtractor:
+    """Enhanced extraction with better accuracy and error handling"""
     
-    def _create_carbon_accounting_model(self):
-        """Create/simulate fine-tuned BERT model for carbon accounting"""
-        
-        # In production, this would be a fine-tuned BERT model
-        # For demo, we create enhanced patterns and rules
-        
-        carbon_patterns = {
-            'electricity_consumption': {
-                'patterns': [
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:total\s+)?kWh\s*(?:used|consumed)?',
-                    r'electricity\s+usage:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*kWh',
-                    r'kWh\s+consumed:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)',
-                    r'power\s+consumption:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:kWh|kwh)'
-                ],
-                'context_indicators': ['electric', 'power', 'utility', 'grid', 'voltage', 'meter']
-            },
-            'natural_gas_consumption': {
-                'patterns': [
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:total\s+)?therms?\s*(?:used|consumed)?',
-                    r'gas\s+usage:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:therms?|ccf)',
-                    r'natural\s+gas:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:therms?|ccf)',
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*ccf\s*=?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*therms?'
-                ],
-                'context_indicators': ['gas', 'heating', 'boiler', 'furnace', 'pipeline', 'therm']
-            },
-            'fuel_consumption': {
-                'patterns': [
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*gallons?\s*(?:of\s+)?(?:gasoline|diesel|fuel)',
-                    r'fuel\s+used:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:gallons?|gal)',
-                    r'(?:gasoline|diesel)\s*:?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:gallons?|gal)',
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:gal|gallons?)\s+(?:gasoline|diesel|fuel)'
-                ],
-                'context_indicators': ['fuel', 'gasoline', 'diesel', 'vehicle', 'tank', 'pump']
-            },
-            'billing_periods': {
-                'patterns': [
-                    r'(?:billing|service)\s+period:?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*(?:to|through|-)\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})',
-                    r'from\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+to\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})',
-                    r'(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*-\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})'
-                ]
-            },
-            'monetary_amounts': {
-                'patterns': [
-                    r'\$(\d+(?:,\d{3})*(?:\.\d{2})?)',
-                    r'(?:total|amount|charge):?\s*\$(\d+(?:,\d{3})*(?:\.\d{2})?)',
-                    r'(\d+(?:,\d{3})*(?:\.\d{2})?)\s*(?:dollars?|\$)'
-                ]
-            }
-        }
-        
-        return carbon_patterns
+    def __init__(self, ner_pipeline):
+        self.ner_pipeline = ner_pipeline
+        self.config = Config()
     
-    # WBS Component 1: Document Processing with OCR
-    def process_document_with_ocr(self, image_path_or_file, enhance_image=True):
-        """
-        Convert scanned documents to text using OCR
-        Implements WBS Component 1: Document Processing
-        """
-        
-        if not OCR_AVAILABLE:
-            return {
-                'success': False,
-                'error': 'OCR not available. Install: pip install pytesseract Pillow',
-                'text': '',
-                'confidence': 0.0
-            }
-        
+    def extract_text_from_image(self, image: Image.Image) -> str:
+        """Enhanced OCR with preprocessing"""
         try:
-            # Handle both file paths and uploaded files
-            if hasattr(image_path_or_file, 'read'):
-                # It's an uploaded file
-                image = Image.open(image_path_or_file)
-            else:
-                # It's a file path
-                image = Image.open(image_path_or_file)
+            # Preprocess image for better OCR
+            image = image.convert('RGB')
             
-            # Image enhancement for better OCR
-            if enhance_image:
-                image = self._enhance_image_for_ocr(image)
+            # Apply OCR with custom config
+            custom_config = r'--oem 3 --psm 6'
+            text = pytesseract.image_to_string(image, config=custom_config)
             
-            # Extract text using Tesseract OCR
-            custom_config = r'--oem 3 --psm 6'  # Optimal settings for documents
-            extracted_text = pytesseract.image_to_string(image, config=custom_config)
-            
-            # Clean and normalize text
-            cleaned_text = self._clean_extracted_text(extracted_text)
-            
-            return {
-                'success': True,
-                'text': cleaned_text,
-                'confidence': self._estimate_ocr_confidence(cleaned_text),
-                'image_size': image.size,
-                'processing_time': datetime.now()
-            }
-            
+            return text.strip()
         except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'text': '',
-                'confidence': 0.0
-            }
+            logger.error(f"OCR Error: {e}")
+            return ""
     
-    def _enhance_image_for_ocr(self, image):
-        """Enhance image quality for better OCR results"""
-        
-        # Convert to grayscale
-        if image.mode != 'L':
-            image = image.convert('L')
-        
-        # Resize if too small (improve resolution)
-        width, height = image.size
-        if width < 1000:
-            scale_factor = 1000 / width
-            new_size = (int(width * scale_factor), int(height * scale_factor))
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-        
-        return image
-    
-    def _clean_extracted_text(self, text):
-        """Clean and normalize OCR-extracted text"""
-        
-        # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
-        
-        # Fix common OCR errors
-        text = text.replace('|', 'I')  # Common OCR error
-        # Note: Removed problematic O->0 replacement
-        
-        # Normalize currency symbols
-        text = re.sub(r'[$＄]', '$', text)
-        
-        # Normalize number formats
-        text = re.sub(r'(\d),(\d)', r'\1,\2', text)  # Ensure comma separators
-        
-        return text.strip()
-    
-    def _estimate_ocr_confidence(self, text):
-        """Estimate OCR confidence based on text characteristics"""
-        
-        if not text:
-            return 0.0
-        
-        score = 0.0
-        
-        # Check for presence of expected elements
-        if re.search(r'\d+(?:,\d{3})*(?:\.\d{2})?', text):  # Numbers
-            score += 0.3
-        if re.search(r'(?:kWh|therm|gallon|bill|invoice)', text, re.I):  # Energy terms
-            score += 0.3  
-        if re.search(r'\$\d+', text):  # Currency
-            score += 0.2
-        if re.search(r'\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}', text):  # Dates
-            score += 0.2
-        
-        return min(score, 1.0)
-    
-    # WBS Component 2: BERT Model Fine-tuning and Data Extraction
-    def extract_data_with_bert(self, text, document_type=None):
-        """
-        Use fine-tuned BERT model to extract emissions-related data
-        Implements WBS Component 2: Model Fine-Tuning
-        """
-        
-        extraction_results = {
-            'timestamp': datetime.now().isoformat(),
-            'document_classification': {},
-            'qa_results': {},
-            'ner_results': [],
-            'pattern_results': {},
+    def extract_energy_data(self, text: str, filename: str) -> Dict[str, Any]:
+        """Enhanced extraction with better pattern matching"""
+        results = {
+            'filename': filename,
+            'raw_text': text,
             'extracted_data': {},
-            'confidence_scores': {}
+            'total_emissions': 0,
+            'extraction_date': datetime.now().isoformat(),
+            'inconsistencies': [],
+            'confidence_score': 0
         }
         
-        # 1. Document Classification using BERT
-        if self.bert_models and 'classifier' in self.bert_models:
-            classification = self._classify_document_with_bert(text)
-            extraction_results['document_classification'] = classification
+        if not text.strip():
+            results['inconsistencies'].append("No text could be extracted from the image.")
+            return results
         
-        # 2. Question-Answering for specific data points
-        if self.bert_models and 'qa' in self.bert_models:
-            qa_results = self._extract_with_qa_bert(text)
-            extraction_results['qa_results'] = qa_results
+        # Enhanced pattern matching
+        extracted_items = self._extract_with_patterns(text)
         
-        # 3. Named Entity Recognition
-        if self.bert_models and 'ner' in self.bert_models:
-            ner_results = self._extract_entities_with_bert(text)
-            extraction_results['ner_results'] = ner_results
+        # Use NER as backup/validation
+        if self.ner_pipeline:
+            ner_items = self._extract_with_ner(text)
+            extracted_items.extend(ner_items)
         
-        # 4. Fine-tuned pattern matching (simulating fine-tuned model)
-        pattern_results = self._extract_with_fine_tuned_patterns(text)
-        extraction_results['pattern_results'] = pattern_results
+        # Process and deduplicate
+        processed_data = self._process_extracted_items(extracted_items)
         
-        # 5. Combine and structure results
-        structured_data = self._structure_extracted_data(extraction_results)
-        extraction_results['extracted_data'] = structured_data
+        results['extracted_data'] = processed_data
+        results['total_emissions'] = sum(
+            data.get('emissions_kg_co2e', 0) 
+            for data in processed_data.values()
+        )
         
-        # 6. Calculate confidence scores
-        confidence_scores = self._calculate_extraction_confidence(extraction_results)
-        extraction_results['confidence_scores'] = confidence_scores
+        # Calculate confidence score
+        results['confidence_score'] = self._calculate_confidence(processed_data, text)
         
-        return extraction_results
+        if not processed_data:
+            results['inconsistencies'].append(
+                "No energy consumption data could be reliably extracted."
+            )
+        
+        return results
     
-    def _classify_document_with_bert(self, text):
-        """Classify document type using BERT"""
+    def _extract_with_patterns(self, text: str) -> List[Dict]:
+        """Extract using regex patterns"""
+        items = []
         
-        candidate_labels = [
-            "electricity bill",
-            "electric utility statement",
-            "natural gas bill", 
-            "gas utility statement",
-            "fuel receipt",
-            "gasoline purchase receipt",
-            "diesel fuel receipt",
-            "heating oil invoice",
-            "energy invoice",
-            "utility statement",
-            "maintenance record",
-            "operational record",
-            "fleet fuel record",
-            "facility energy report"
+        # Enhanced patterns for different energy types
+        patterns = [
+            # Electricity: 1,234 kWh, 1234.56 kwh
+            (r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(kwh|kilowatt[- ]?hours?)', 'electricity'),
+            # Natural gas: 123 therms, 45.6 mcf
+            (r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(therms?|mcf|ccf)', 'natural_gas'),
+            # Fuel: 45.2 gallons, 123.4 gal
+            (r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(gallons?|gal)', 'gasoline'),
+            # General BTU pattern
+            (r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(btu)', 'natural_gas'),
         ]
         
-        try:
-            result = self.bert_models['classifier'](text[:1000], candidate_labels)
-            
-            return {
-                'document_type': result['labels'][0],
-                'confidence': result['scores'][0],
-                'all_predictions': dict(zip(result['labels'][:5], result['scores'][:5]))
-            }
-        except Exception as e:
-            return {
-                'document_type': 'unknown',
-                'confidence': 0.0,
-                'error': str(e)
-            }
+        for pattern, energy_type in patterns:
+            matches = re.finditer(pattern, text.lower())
+            for match in matches:
+                try:
+                    amount_str = match.group(1).replace(',', '')
+                    amount = float(amount_str)
+                    unit = match.group(2)
+                    
+                    items.append({
+                        'amount': amount,
+                        'unit': unit,
+                        'energy_type': energy_type,
+                        'source_text': match.group(0),
+                        'method': 'regex'
+                    })
+                except ValueError:
+                    continue
+        
+        return items
     
-    def _extract_with_qa_bert(self, text):
-        """Use BERT Q&A to extract specific information"""
-        
-        # Carbon accounting specific questions
-        questions = [
-            "How many kWh of electricity were used?",
-            "What is the total electricity consumption?",
-            "How many therms of natural gas were consumed?",
-            "What is the gas usage in therms?",
-            "How many gallons of fuel were purchased?",
-            "What is the diesel consumption in gallons?",
-            "What is the billing period?",
-            "What is the service period?",
-            "What is the total amount charged?",
-            "What is the rate per kWh?",
-            "What is the rate per therm?",
-            "What is the account number?",
-            "What is the meter reading?",
-            "What facility is this bill for?"
-        ]
-        
-        qa_results = {}
-        
-        for question in questions:
-            try:
-                result = self.bert_models['qa'](question=question, context=text)
-                
-                if result['score'] > 0.3:  # Only accept confident answers
-                    qa_results[question] = {
-                        'answer': result['answer'],
-                        'confidence': result['score'],
-                        'start_char': result['start'],
-                        'end_char': result['end']
-                    }
-            except Exception as e:
-                continue
-        
-        return qa_results
-    
-    def _extract_entities_with_bert(self, text):
-        """Extract named entities using BERT NER"""
+    def _extract_with_ner(self, text: str) -> List[Dict]:
+        """Extract using NER model"""
+        items = []
         
         try:
-            entities = self.bert_models['ner'](text)
-            
-            # Filter and enhance entities for carbon accounting
-            carbon_entities = []
+            entities = self.ner_pipeline(text)
             
             for entity in entities:
-                if entity['entity_group'] in ['PER', 'ORG', 'LOC', 'MISC']:
-                    carbon_entities.append({
-                        'text': entity['word'],
-                        'label': entity['entity_group'],
-                        'confidence': entity['score'],
-                        'start': entity['start'],
-                        'end': entity['end']
-                    })
-            
-            return carbon_entities
-            
+                if entity['entity_group'] in ['QUANTITY', 'CARDINAL']:
+                    # Look for energy-related terms in the entity
+                    entity_text = entity['word'].lower()
+                    
+                    for unit_pattern, energy_type in self.config.UNIT_PATTERNS.items():
+                        if unit_pattern in entity_text:
+                            # Extract number
+                            numbers = re.findall(r'\d+\.?\d*', entity['word'])
+                            if numbers:
+                                try:
+                                    amount = float(numbers[0])
+                                    items.append({
+                                        'amount': amount,
+                                        'unit': unit_pattern,
+                                        'energy_type': energy_type,
+                                        'source_text': entity['word'],
+                                        'method': 'ner',
+                                        'confidence': entity.get('score', 0)
+                                    })
+                                except ValueError:
+                                    continue
         except Exception as e:
-            return []
+            logger.error(f"NER extraction error: {e}")
+        
+        return items
     
-    def _extract_with_fine_tuned_patterns(self, text):
-        """Extract data using fine-tuned patterns (simulating fine-tuned BERT)"""
+    def _process_extracted_items(self, items: List[Dict]) -> Dict[str, Dict]:
+        """Process and deduplicate extracted items"""
+        processed = {}
         
-        if not hasattr(self, 'fine_tuned_model'):
-            return {}
-        
-        pattern_results = {}
-        
-        for category, pattern_info in self.fine_tuned_model.items():
-            pattern_results[category] = []
+        for item in items:
+            energy_type = item['energy_type']
+            amount = item['amount']
             
-            for pattern in pattern_info['patterns']:
-                matches = re.finditer(pattern, text, re.IGNORECASE)
-                
-                for match in matches:
-                    # Context analysis
-                    context_start = max(0, match.start() - 50)
-                    context_end = min(len(text), match.end() + 50)
-                    context = text[context_start:context_end]
-                    
-                    # Check for context indicators
-                    context_score = 0.0
-                    if 'context_indicators' in pattern_info:
-                        for indicator in pattern_info['context_indicators']:
-                            if indicator.lower() in context.lower():
-                                context_score += 0.1
-                    
-                    pattern_results[category].append({
-                        'match': match.group(),
-                        'value': match.group(1) if match.groups() else match.group(),
-                        'start': match.start(),
-                        'end': match.end(),
-                        'context': context,
-                        'context_score': min(context_score, 1.0),
-                        'pattern': pattern
-                    })
-        
-        return pattern_results
-    
-    def _structure_extracted_data(self, extraction_results):
-        """Structure raw extraction results into carbon accounting data"""
-        
-        structured_data = {
-            'energy_consumption': {},
-            'billing_info': {},
-            'financial_info': {},
-            'facility_info': {}
-        }
-        
-        # Process Q&A results
-        qa_results = extraction_results.get('qa_results', {})
-        
-        for question, answer_data in qa_results.items():
-            answer = answer_data['answer']
-            confidence = answer_data['confidence']
+            # Calculate emissions
+            emission_factor = self.config.EMISSION_FACTORS.get(energy_type, 0)
+            emissions = amount * emission_factor
             
-            # Extract electricity data
-            if any(term in question.lower() for term in ['kwh', 'electricity']):
-                amount = self._extract_number_from_text(answer)
-                if amount and amount > 0:
-                    structured_data['energy_consumption']['electricity'] = {
+            # Handle duplicates by taking the highest confidence or largest amount
+            if energy_type in processed:
+                existing = processed[energy_type]
+                if amount > existing['amount'] or item.get('confidence', 0) > existing.get('confidence', 0):
+                    processed[energy_type] = {
                         'amount': amount,
-                        'unit': 'kWh',
-                        'confidence': confidence,
-                        'source': 'BERT_QA',
-                        'original_text': answer
+                        'unit': item['unit'],
+                        'emissions_kg_co2e': emissions,
+                        'source_text': item['source_text'],
+                        'method': item['method'],
+                        'confidence': item.get('confidence', 0)
                     }
-            
-            # Extract gas data
-            elif any(term in question.lower() for term in ['therm', 'gas']):
-                amount = self._extract_number_from_text(answer)
-                if amount and amount > 0:
-                    structured_data['energy_consumption']['natural_gas'] = {
-                        'amount': amount,
-                        'unit': 'therms',
-                        'confidence': confidence,
-                        'source': 'BERT_QA',
-                        'original_text': answer
-                    }
-            
-            # Extract fuel data
-            elif any(term in question.lower() for term in ['gallon', 'fuel', 'diesel']):
-                amount = self._extract_number_from_text(answer)
-                if amount and amount > 0:
-                    fuel_type = 'gasoline'
-                    if 'diesel' in question.lower() or 'diesel' in answer.lower():
-                        fuel_type = 'diesel'
-                    
-                    structured_data['energy_consumption'][fuel_type] = {
-                        'amount': amount,
-                        'unit': 'gallons',
-                        'confidence': confidence,
-                        'source': 'BERT_QA',
-                        'original_text': answer
-                    }
-            
-            # Extract billing period
-            elif 'period' in question.lower():
-                structured_data['billing_info']['period'] = {
-                    'text': answer,
-                    'confidence': confidence,
-                    'source': 'BERT_QA'
-                }
-            
-            # Extract costs
-            elif 'amount' in question.lower() or 'total' in question.lower():
-                amount = self._extract_number_from_text(answer)
-                if amount and amount > 0:
-                    structured_data['financial_info']['total_cost'] = {
-                        'amount': amount,
-                        'confidence': confidence,
-                        'source': 'BERT_QA',
-                        'original_text': answer
-                    }
-        
-        # Enhance with pattern results
-        pattern_results = extraction_results.get('pattern_results', {})
-        
-        for category, matches in pattern_results.items():
-            if matches and category in ['electricity_consumption', 'natural_gas_consumption', 'fuel_consumption']:
-                # Take the match with highest context score
-                best_match = max(matches, key=lambda x: x['context_score'])
-                
-                amount = self._extract_number_from_text(best_match['value'])
-                if amount and amount > 0:
-                    energy_type = category.replace('_consumption', '')
-                    if energy_type == 'natural_gas':
-                        energy_type = 'natural_gas'
-                        unit = 'therms'
-                    elif energy_type == 'electricity':
-                        unit = 'kWh'
-                    elif energy_type == 'fuel':
-                        energy_type = 'gasoline'  # Default
-                        unit = 'gallons'
-                    
-                    # Only update if we don't have data or this has higher confidence
-                    existing_data = structured_data['energy_consumption'].get(energy_type)
-                    if not existing_data or best_match['context_score'] > existing_data.get('confidence', 0):
-                        structured_data['energy_consumption'][energy_type] = {
-                            'amount': amount,
-                            'unit': unit,
-                            'confidence': best_match['context_score'],
-                            'source': 'Fine_tuned_Pattern',
-                            'original_text': best_match['match']
-                        }
-        
-        return structured_data
-    
-    def _extract_number_from_text(self, text):
-        """Extract numerical value from text"""
-        
-        # Pattern for numbers with optional commas and decimals
-        pattern = r'(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)'
-        match = re.search(pattern, str(text))
-        
-        if match:
-            return float(match.group(1).replace(',', ''))
-        return None
-    
-    def _calculate_extraction_confidence(self, extraction_results):
-        """Calculate overall confidence metrics for extraction"""
-        
-        confidences = []
-        
-        # Document classification confidence
-        doc_conf = extraction_results.get('document_classification', {}).get('confidence', 0)
-        if doc_conf > 0:
-            confidences.append(doc_conf)
-        
-        # Q&A confidences
-        qa_results = extraction_results.get('qa_results', {})
-        for result in qa_results.values():
-            confidences.append(result['confidence'])
-        
-        # Pattern matching confidences
-        pattern_results = extraction_results.get('pattern_results', {})
-        for matches in pattern_results.values():
-            for match in matches:
-                confidences.append(match['context_score'])
-        
-        if confidences:
-            overall_confidence = np.mean(confidences)
-            confidence_std = np.std(confidences)
-        else:
-            overall_confidence = 0.0
-            confidence_std = 0.0
-        
-        return {
-            'overall_confidence': float(overall_confidence),
-            'confidence_std': float(confidence_std),
-            'extraction_count': len(confidences),
-            'high_confidence_count': sum(1 for c in confidences if c > 0.8),
-            'medium_confidence_count': sum(1 for c in confidences if 0.5 <= c <= 0.8),
-            'low_confidence_count': sum(1 for c in confidences if c < 0.5)
-        }
-    
-    # WBS Component 3: GHG Emissions Calculation
-    def calculate_ghg_emissions(self, structured_data, calculation_method='standard'):
-        """
-        Calculate GHG emissions using standard emission factors
-        Implements WBS Component 3: Calculation Automation
-        """
-        
-        calculation_results = {
-            'calculation_date': datetime.now().isoformat(),
-            'method': calculation_method,
-            'emission_factors_used': {},
-            'scope_1_emissions': {},
-            'scope_2_emissions': {},
-            'total_emissions': 0.0,
-            'uncertainty_analysis': {},
-            'calculation_details': []
-        }
-        
-        energy_data = structured_data.get('energy_consumption', {})
-        
-        for energy_type, consumption_data in energy_data.items():
-            amount = consumption_data.get('amount', 0.0)
-            unit = consumption_data.get('unit')
-
-            if not amount or not unit:
-                continue
-
-            unit_key = unit.lower().rstrip('s')
-            factor_key = f"{energy_type.lower()}_{unit_key}"
-            factor = self.emission_factors.get(factor_key)
-            
-            if factor:
-                emissions = amount * factor
-                scope = 'scope_2_emissions' if 'electric' in energy_type else 'scope_1_emissions'
-                
-                calculation_results[scope][energy_type] = calculation_results[scope].get(energy_type, 0) + emissions
-                calculation_results['total_emissions'] += emissions
-                calculation_results['emission_factors_used'][factor_key] = factor
-                
-                calculation_results['calculation_details'].append({
-                    'source': energy_type,
+            else:
+                processed[energy_type] = {
                     'amount': amount,
-                    'unit': unit,
-                    'emission_factor': factor,
-                    'emissions_kg_co2e': round(emissions, 2),
-                    'scope': scope.split('_')[0].capitalize()
+                    'unit': item['unit'],
+                    'emissions_kg_co2e': emissions,
+                    'source_text': item['source_text'],
+                    'method': item['method'],
+                    'confidence': item.get('confidence', 0)
+                }
+        
+        return processed
+    
+    def _calculate_confidence(self, data: Dict, text: str) -> float:
+        """Calculate overall confidence score"""
+        if not data:
+            return 0.0
+        
+        scores = []
+        for item in data.values():
+            # Base confidence from extraction method
+            base_score = 0.8 if item['method'] == 'regex' else item.get('confidence', 0.6)
+            
+            # Boost if we found clear unit indicators
+            if any(unit in text.lower() for unit in ['kwh', 'therm', 'gallon']):
+                base_score += 0.1
+            
+            # Boost if amounts seem reasonable
+            if 0 < item['amount'] < 10000:
+                base_score += 0.1
+            
+            scores.append(min(base_score, 1.0))
+        
+        return sum(scores) / len(scores) if scores else 0.0
+
+# --- Enhanced Visualization ---
+def create_emissions_charts(results: List[Dict]):
+    """Create interactive charts for emissions data"""
+    
+    # Prepare data
+    chart_data = []
+    for result in results:
+        for energy_type, data in result.get('extracted_data', {}).items():
+            chart_data.append({
+                'File': result['filename'],
+                'Energy Type': energy_type.replace('_', ' ').title(),
+                'Amount': data.get('amount', 0),
+                'Emissions': data.get('emissions_kg_co2e', 0),
+                'Unit': data.get('unit', '')
+            })
+    
+    if not chart_data:
+        return None, None
+    
+    df = pd.DataFrame(chart_data)
+    
+    # Emissions by energy type
+    fig1 = px.pie(df, values='Emissions', names='Energy Type', 
+                  title='Emissions by Energy Type (kg CO2e)')
+    fig1.update_traces(textposition='inside', textinfo='percent+label')
+    
+    # Emissions by file
+    fig2 = px.bar(df, x='File', y='Emissions', color='Energy Type',
+                  title='Emissions by Document')
+    fig2.update_layout(xaxis_tickangle=-45)
+    
+    return fig1, fig2
+
+# --- Enhanced Report Generation ---
+def generate_professional_pdf_report(results: List[Dict], analysis: str = None) -> io.BytesIO:
+    """Generate a professional PDF report"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#2E86C1'),
+        alignment=TA_CENTER,
+        spaceAfter=30
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#1B4F72'),
+        spaceAfter=12
+    )
+    
+    # Title page
+    story.append(Paragraph("Emissions Audit Report", title_style))
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Executive Summary
+    total_emissions = sum(r.get('total_emissions', 0) for r in results)
+    total_files = len(results)
+    
+    story.append(Paragraph("Executive Summary", heading_style))
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Documents Processed', str(total_files)],
+        ['Total Emissions', f'{total_emissions:.2f} kg CO2e'],
+        ['Average per Document', f'{total_emissions/total_files:.2f} kg CO2e' if total_files > 0 else 'N/A'],
+        ['Report Date', datetime.now().strftime('%Y-%m-%d %H:%M')]
+    ]
+    
+    summary_table = Table(summary_data)
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E86C1')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 30))
+    
+    # Detailed Results
+    story.append(Paragraph("Detailed Results", heading_style))
+    
+    for result in results:
+        story.append(Paragraph(f"Document: {result['filename']}", styles['Heading3']))
+        
+        if result.get('extracted_data'):
+            data_rows = [['Energy Type', 'Consumption', 'Unit', 'Emissions (kg CO2e)']]
+            
+            for energy_type, data in result['extracted_data'].items():
+                data_rows.append([
+                    energy_type.replace('_', ' ').title(),
+                    f"{data.get('amount', 'N/A'):.2f}",
+                    data.get('unit', ''),
+                    f"{data.get('emissions_kg_co2e', 0):.2f}"
+                ])
+            
+            detail_table = Table(data_rows)
+            detail_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#85C1E9')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#EBF5FB')),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(detail_table)
+        else:
+            story.append(Paragraph("No energy data extracted from this document.", styles['Normal']))
+        
+        # Confidence and issues
+        confidence = result.get('confidence_score', 0)
+        story.append(Paragraph(f"Confidence Score: {confidence:.1%}", styles['Normal']))
+        
+        if result.get('inconsistencies'):
+            story.append(Paragraph("Issues Found:", styles['Heading4']))
+            for issue in result['inconsistencies']:
+                story.append(Paragraph(f"• {issue}", styles['Normal']))
+        
+        story.append(Spacer(1, 20))
+    
+    # AI Analysis (if available)
+    if analysis and "API key not configured" not in analysis:
+        story.append(PageBreak())
+        story.append(Paragraph("AI Analysis & Recommendations", heading_style))
+        story.append(Paragraph(analysis, styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# --- Enhanced Streamlit UI ---
+def main():
+    st.set_page_config(
+        page_title="Emissions Audit Pipeline",
+        page_icon="🌱",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Custom CSS
+    st.markdown("""
+    <style>
+    .main-header {
+        font-size: 3rem;
+        color: #2E86C1;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #EBF5FB;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #2E86C1;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<h1 class="main-header">🌱 Advanced Emissions Audit Pipeline</h1>', unsafe_allow_html=True)
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("📁 Document Upload")
+        uploaded_files = st.file_uploader(
+            "Upload energy bills/documents",
+            type=['png', 'jpg', 'jpeg', 'pdf'],
+            accept_multiple_files=True,
+            help="Upload images of energy bills, utility statements, or other consumption documents"
+        )
+    
+    # Initialize session state
+    if 'extraction_results' not in st.session_state:
+        st.session_state.extraction_results = []
+    if 'gemini_analyst' not in st.session_state:
+        st.session_state.gemini_analyst = GeminiAnalyst()
+    
+    # Process uploaded files
+    if uploaded_files:
+        ner_pipeline = load_models()
+        if ner_pipeline is None:
+            st.error("Failed to load NLP models. Please refresh the page.")
+            return
+        
+        extractor = AdvancedCarbonExtractor(ner_pipeline)
+        st.session_state.extraction_results = []
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, uploaded_file in enumerate(uploaded_files):
+            status_text.text(f"Processing {uploaded_file.name}...")
+            
+            try:
+                if uploaded_file.type.startswith('image'):
+                    image = Image.open(uploaded_file)
+                    text = extractor.extract_text_from_image(image)
+                    
+                    if text.strip():
+                        result = extractor.extract_energy_data(text, uploaded_file.name)
+                        st.session_state.extraction_results.append(result)
+                    else:
+                        st.warning(f"No text could be extracted from {uploaded_file.name}")
+                
+            except Exception as e:
+                st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+            
+            progress_bar.progress((i + 1) / len(uploaded_files))
+        
+        status_text.text("Processing complete!")
+        progress_bar.empty()
+        status_text.empty()
+    
+    # Display results
+    if st.session_state.extraction_results:
+        results = st.session_state.extraction_results
+        
+        # Metrics overview
+        st.header("📊 Overview")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        total_emissions = sum(r.get('total_emissions', 0) for r in results)
+        avg_confidence = sum(r.get('confidence_score', 0) for r in results) / len(results)
+        total_files = len(results)
+        successful_extractions = len([r for r in results if r.get('extracted_data')])
+        
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>🌍 Total Emissions</h3>
+                <h2>{total_emissions:.2f} kg CO2e</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>📄 Documents</h3>
+                <h2>{successful_extractions}/{total_files}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>🎯 Avg Confidence</h3>
+                <h2>{avg_confidence:.1%}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col4:
+            co2_equivalent = total_emissions * 2.2  # rough trees planted equivalent
+            st.markdown(f"""
+            <div class="metric-card">
+                <h3>🌳 Trees to Offset</h3>
+                <h2>{co2_equivalent:.0f}</h2>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Visualizations
+        st.header("📈 Data Visualization")
+        fig1, fig2 = create_emissions_charts(results)
+        
+        if fig1 and fig2:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(fig1, use_container_width=True)
+            with col2:
+                st.plotly_chart(fig2, use_container_width=True)
+        
+        # Detailed data table
+        st.header("📋 Detailed Results")
+        display_data = []
+        for result in results:
+            for energy_type, data in result.get('extracted_data', {}).items():
+                display_data.append({
+                    "Document": result['filename'],
+                    "Energy Type": energy_type.replace('_', ' ').title(),
+                    "Consumption": f"{data.get('amount', 'N/A'):.2f}",
+                    "Unit": data.get('unit', ''),
+                    "Emissions (kg CO2e)": f"{data.get('emissions_kg_co2e', 0):.2f}",
+                    "Confidence": f"{result.get('confidence_score', 0):.1%}",
+                    "Method": data.get('method', 'N/A').title()
                 })
         
-        calculation_results['total_emissions'] = round(calculation_results['total_emissions'], 2)
-        return calculation_results
-
-# --- Streamlit UI --- #
-
-@st.cache_resource
-def get_carbon_accounting_system():
-    """Load and cache the main system class."""
-    return IndustrialCarbonAccountingSystem()
-
-def main():
-    """Main function to run the Streamlit application."""
+        if display_data:
+            df = pd.DataFrame(display_data)
+            st.dataframe(df, use_container_width=True)
+        
+        # AI Analysis
+        if st.session_state.gemini_analyst:
+            st.header("🤖 AI Analysis & Insights")
+            
+            if st.button("Generate AI Analysis", type="primary"):
+                with st.spinner("Analyzing data with AI..."):
+                    analysis = st.session_state.gemini_analyst.analyze_emissions_data(results)
+                    st.session_state.ai_analysis = analysis
+            
+            if hasattr(st.session_state, 'ai_analysis'):
+                st.markdown(st.session_state.ai_analysis)
+            
+            # Chat interface
+            st.subheader("💬 Chat with Your Data")
+            user_question = st.text_input("Ask questions about your emissions data:")
+            
+            if user_question:
+                with st.spinner("Getting answer..."):
+                    answer = st.session_state.gemini_analyst.chat_about_data(user_question, results)
+                    st.markdown(f"**Answer:** {answer}")
+        
+        # Data quality issues
+        st.header("⚠️ Data Quality & Issues")
+        issues_found = False
+        for result in results:
+            if result.get('inconsistencies'):
+                issues_found = True
+                with st.expander(f"Issues in {result['filename']} (Confidence: {result.get('confidence_score', 0):.1%})"):
+                    for issue in result['inconsistencies']:
+                        st.warning(issue)
+        
+        if not issues_found:
+            st.success("No data quality issues detected!")
+        
+        # Download reports
+        st.header("📥 Download Reports")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Excel report
+            excel_data = generate_excel_report(results)
+            st.download_button(
+                label="📊 Download Excel Report",
+                data=excel_data,
+                file_name=f"emissions_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        
+        with col2:
+            # Enhanced PDF report
+            analysis_text = getattr(st.session_state, 'ai_analysis', None)
+            pdf_data = generate_professional_pdf_report(results, analysis_text)
+            st.download_button(
+                label="📄 Download PDF Report",
+                data=pdf_data,
+                file_name=f"emissions_audit_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf"
+            )
+        
+        with col3:
+            # JSON data export
+            json_data = json.dumps(results, indent=2, default=str)
+            st.download_button(
+                label="💾 Download Raw Data (JSON)",
+                data=json_data,
+                file_name=f"emissions_data_{datetime.now().strftime('%Y%m%d')}.json",
+                mime="application/json"
+            )
     
-    st.set_page_config(page_title="AI Carbon Accounting", layout="wide", page_icon="🍃")
-    
-    # --- HEADER ---
-    st.title("🍃 AI-Powered Industrial Carbon Accounting")
-    st.subheader("Automated GHG Emissions Auditing from Scanned Documents")
-    st.markdown("---_**WBS Final Implementation:** This system integrates OCR, fine-tuned BERT models, and ISO 14064 compliance checks to provide a complete carbon accounting solution._---")
-
-    # --- INITIALIZE SYSTEM ---
-    try:
-        system = get_carbon_accounting_system()
-        if not system.bert_models:
-            st.warning("BERT models are not loaded. Some features will be unavailable.")
-    except Exception as e:
-        st.error(f"Fatal error during system initialization: {e}")
-        st.stop()
-
-    st.sidebar.header("System Information")
-    st.sidebar.info(f"**System:** {system.system_name}\n**Version:** {system.version}")
-    st.sidebar.header("Upload Documents")
-    uploaded_files = st.sidebar.file_uploader(
-        "Choose one or more scanned bills or receipts (PNG, JPG, TIFF)",
-        type=['png', 'jpg', 'jpeg', 'tiff'],
-        accept_multiple_files=True
-    )
-    st.sidebar.header("Options")
-    enhance_image = st.sidebar.checkbox("Enhance Image for OCR", value=True)
-    run_analysis = st.sidebar.button("Analyze Documents")
-
-
-    if not OCR_AVAILABLE:
-        st.error("Tesseract OCR is not installed or not in your PATH. Please install it from [here](https://github.com/UB-Mannheim/tesseract/wiki) and ensure the installation directory is added to your system's PATH.")
-
-    if run_analysis and uploaded_files:
-        st.header("Batch Processing Results")
-        
-        all_results = []
-        total_emissions = 0.0
-        
-        for uploaded_file in uploaded_files:
-            with st.expander(f"Analysis for {uploaded_file.name}", expanded=False):
-                with st.spinner(f"Processing {uploaded_file.name}..."):
-                    st.subheader(f"Document: {uploaded_file.name}")
-                    
-                    # --- 1. OCR PROCESSING ---
-                    st.write("#### 1. Document Processing (OCR)")
-                    ocr_result = system.process_document_with_ocr(uploaded_file, enhance_image=enhance_image)
-                    
-                    if not ocr_result['success']:
-                        st.error(f"OCR Failed: {ocr_result['error']}")
-                        continue
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(uploaded_file, caption="Uploaded Document", use_column_width=True)
-                    with col2:
-                        st.info("Extracted Text")
-                        st.text_area(f"text_{uploaded_file.name}", ocr_result['text'], height=250, key=f"text_area_{uploaded_file.name}")
-                        st.metric("OCR Confidence", f"{ocr_result['confidence']:.2%}")
-
-                    # --- 2. AI DATA EXTRACTION (BERT) ---
-                    st.write("#### 2. AI-Powered Data Extraction (BERT)")
-                    extraction_result = system.extract_data_with_bert(ocr_result['text'])
-                    
-                    st.info("Structured Data")
-                    st.json(extraction_result['extracted_data'])
-                    
-                    # --- 3. GHG EMISSIONS CALCULATION ---
-                    st.write("#### 3. GHG Emissions Calculation")
-                    calculation_result = system.calculate_ghg_emissions(extraction_result['extracted_data'])
-                    
-                    file_emissions = calculation_result['total_emissions']
-                    st.metric(f"Emissions from this document (kg CO₂e)", f"{file_emissions:.2f}")
-                    
-                    if calculation_result['calculation_details']:
-                        df_details = pd.DataFrame(calculation_result['calculation_details'])
-                        all_results.append(df_details)
-                        total_emissions += file_emissions
-
-        # --- 4. AGGREGATED COMPLIANCE & REPORTING ---
-        st.header("4. Aggregated Compliance & Reporting")
-        
-        if all_results:
-            # Combine all dataframes
-            df_combined = pd.concat(all_results, ignore_index=True)
-            
-            st.metric("Total Emissions from all documents (kg CO₂e)", f"{total_emissions:.2f}")
-            
-            st.subheader("Detailed Emissions Breakdown")
-            st.dataframe(df_combined)
-            
-            # Emissions breakdown chart
-            if total_emissions > 0:
-                fig = px.pie(
-                    df_combined, 
-                    names='source', 
-                    values='emissions_kg_co2e', 
-                    title='Aggregated Emissions Breakdown by Source',
-                    hole=0.3
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No emissions data could be calculated from the uploaded documents.")
-
-    elif run_analysis and not uploaded_files:
-        st.warning("Please upload one or more documents before running the analysis.")
-
     else:
-        st.info("Upload one or more documents and click 'Analyze Documents' to begin.")
+        st.info("📤 Upload energy bills or consumption documents to begin the automated emissions accounting process.")
+        st.markdown("""
+        ### How it works:
+        1. **Upload** images of energy bills, utility statements, or consumption documents
+        2. **Extract** data using advanced OCR and AI models
+        3. **Calculate** emissions using standard factors
+        4. **Analyze** results with AI-powered insights
+        5. **Download** professional reports
+        
+        ### Supported formats:
+        - Images: PNG, JPG, JPEG
+        - Energy types: Electricity, Natural Gas, Gasoline, Diesel, and more
+        """)
+
+def generate_excel_report(results):
+    """Generate enhanced Excel report"""
+    display_data = []
+    summary_data = []
+    
+    for result in results:
+        # Detailed data
+        for energy_type, data in result.get('extracted_data', {}).items():
+            display_data.append({
+                "Document": result['filename'],
+                "Energy Type": energy_type.replace('_', ' ').title(),
+                "Amount": data.get('amount', 0),
+                "Unit": data.get('unit', ''),
+                "Emissions (kg CO2e)": data.get('emissions_kg_co2e', 0),
+                "Confidence": result.get('confidence_score', 0),
+                "Extraction Method": data.get('method', 'N/A').title(),
+                "Source Text": data.get('source_text', ''),
+                "Date Processed": result.get('extraction_date', '')
+            })
+        
+        # Summary data
+        summary_data.append({
+            "Document": result['filename'],
+            "Total Emissions (kg CO2e)": result.get('total_emissions', 0),
+            "Confidence Score": result.get('confidence_score', 0),
+            "Energy Types Found": len(result.get('extracted_data', {})),
+            "Issues Count": len(result.get('inconsistencies', [])),
+            "Processing Date": result.get('extraction_date', '')
+        })
+    
+    # Create Excel file with multiple sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Detailed sheet
+        if display_data:
+            df_detailed = pd.DataFrame(display_data)
+            df_detailed.to_excel(writer, index=False, sheet_name='Detailed Results')
+            
+            # Format the detailed sheet
+            workbook = writer.book
+            worksheet = writer.sheets['Detailed Results']
+            
+            # Add formatting
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#2E86C1',
+                'font_color': 'white',
+                'border': 1
+            })
+            
+            # Write headers with formatting
+            for col_num, value in enumerate(df_detailed.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+            
+            # Auto-adjust column widths
+            for i, col in enumerate(df_detailed.columns):
+                max_length = max(df_detailed[col].astype(str).map(len).max(), len(col))
+                worksheet.set_column(i, i, min(max_length + 2, 50))
+        
+        # Summary sheet
+        if summary_data:
+            df_summary = pd.DataFrame(summary_data)
+            
+            # Add totals row
+            totals_row = {
+                "Document": "TOTAL",
+                "Total Emissions (kg CO2e)": df_summary["Total Emissions (kg CO2e)"].sum(),
+                "Confidence Score": df_summary["Confidence Score"].mean(),
+                "Energy Types Found": df_summary["Energy Types Found"].sum(),
+                "Issues Count": df_summary["Issues Count"].sum(),
+                "Processing Date": datetime.now().strftime('%Y-%m-%d %H:%M')
+            }
+            
+            # Append totals
+            df_with_totals = pd.concat([df_summary, pd.DataFrame([totals_row])], ignore_index=True)
+            
+            df_with_totals.to_excel(writer, index=False, sheet_name='Summary', startrow=0)
+        
+        # Issues sheet
+        issues_data = []
+        for result in results:
+            for issue in result.get('inconsistencies', []):
+                issues_data.append({
+                    "Document": result['filename'],
+                    "Issue": issue,
+                    "Confidence": result.get('confidence_score', 0),
+                    "Date": result.get('extraction_date', '')
+                })
+        
+        if issues_data:
+            df_issues = pd.DataFrame(issues_data)
+            df_issues.to_excel(writer, index=False, sheet_name='Issues & Warnings')
+    
+    output.seek(0)
+    return output.getvalue()
+
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,61 @@
+
+body {
+    font-family: sans-serif;
+    margin: 0;
+    background-color: #f4f4f9;
+    color: #333;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+h1 {
+    color: #4a4a4a;
+}
+
+.upload-section, .results-section, .chat-section {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.hidden {
+    display: none;
+}
+
+#upload-button, #download-pdf-button, #send-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#results-container, #chat-history {
+    margin-top: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.chat-input {
+    display: flex;
+    margin-top: 10px;
+}
+
+#chat-message {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}

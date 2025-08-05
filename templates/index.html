@@ -1,0 +1,38 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carbon Accounting</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Automated Emissions Accounting</h1>
+        </header>
+        <main>
+            <div class="upload-section">
+                <h2>Upload Your Documents</h2>
+                <input type="file" id="file-input" multiple>
+                <button id="upload-button">Process Documents</button>
+            </div>
+            <div id="results-section" class="hidden">
+                <h2>Extraction Results</h2>
+                <div id="results-container"></div>
+                <button id="download-pdf-button">Download PDF Report</button>
+            </div>
+            <div id="chat-section" class="hidden">
+                <h2>Chat with Your Data</h2>
+                <div id="chat-history"></div>
+                <div class="chat-input">
+                    <input type="text" id="chat-message" placeholder="Ask a question about your data...">
+                    <button id="send-button">Send</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
