@@ -1,0 +1,10 @@
+streamlit
+pytesseract
+pandas
+ Pillow
+reportlab
+plotly
+google-generativeai
+transformers
+python-dotenv
+openpyxl # For Excel writing
