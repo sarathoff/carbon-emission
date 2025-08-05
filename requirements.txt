@@ -1,10 +1,11 @@
 streamlit
 pytesseract
 pandas
- Pillow
+Pillow
 reportlab
 plotly
 google-generativeai
 transformers
 python-dotenv
 openpyxl # For Excel writing
+torch
