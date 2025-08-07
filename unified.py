@@ -74,7 +74,7 @@ class GeminiAnalyst:
         api_key = os.environ.get("GEMINI_API_KEY")
         if api_key:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-2.5-pro')
         else:
             self.model = None
     
@@ -533,7 +533,11 @@ def main():
     if 'extraction_results' not in st.session_state:
         st.session_state.extraction_results = []
     if 'gemini_analyst' not in st.session_state:
-        st.session_state.gemini_analyst = GeminiAnalyst()
+        try:
+            st.session_state.gemini_analyst = GeminiAnalyst()
+        except ValueError as e:
+            st.error(e)
+            st.session_state.gemini_analyst = None
     
     # Process uploaded files
     if uploaded_files:
