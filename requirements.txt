@@ -9,3 +9,4 @@ transformers
 python-dotenv
 openpyxl # For Excel writing
 torch
+xlsxwriter
