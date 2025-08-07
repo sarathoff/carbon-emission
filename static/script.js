@@ -9,8 +9,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatHistory = document.getElementById('chat-history');
     const chatMessage = document.getElementById('chat-message');
     const sendButton = document.getElementById('send-button');
+    const loadSamplesButton = document.getElementById('load-samples-button');
+    const sampleImagesContainer = document.getElementById('sample-images-container');
 
     let extractionResults = [];
+
+    loadSamplesButton.addEventListener('click', async () => {
+        const response = await fetch('/sample_images');
+        const images = await response.json();
+        sampleImagesContainer.innerHTML = '';
+        images.forEach(image => {
+            const imgElement = document.createElement('img');
+            imgElement.src = `/data/raw_images/${image}`;
+            imgElement.alt = image;
+            imgElement.classList.add('sample-image');
+            imgElement.addEventListener('click', () => {
+                const dataTransfer = new DataTransfer();
+                fetch(imgElement.src)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const file = new File([blob], image, { type: blob.type });
+                        dataTransfer.items.add(file);
+                        fileInput.files = dataTransfer.files;
+                        uploadButton.click();
+                    });
+            });
+            sampleImagesContainer.appendChild(imgElement);
+        });
+    });
 
     uploadButton.addEventListener('click', async () => {
         const files = fileInput.files;

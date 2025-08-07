@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from PIL import Image
 import pytesseract
 import re
@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+import os
 
 app = Flask(__name__)
 
@@ -149,11 +150,22 @@ def summarize():
     summary = generate_summary(text)
     return jsonify({'summary': summary})
 
-@app.route('/download_pdf', methods=['POST'])
+"""@app.route('/download_pdf', methods=['POST'])
 def download_pdf():
     results = request.get_json()
     pdf_buffer = generate_pdf_report(results)
     return send_file(pdf_buffer, as_attachment=True, download_name='emissions_report.pdf', mimetype='application/pdf')
 
+@app.route('/sample_images')
+def sample_images():
+    image_dir = os.path.join(app.static_folder, '../data/raw_images')
+    images = [f for f in os.listdir(image_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    return jsonify(images)
+
+@app.route('/data/raw_images/<path:filename>')
+def raw_image(filename):
+    return send_from_directory('data/raw_images', filename)
+
 if __name__ == '__main__':
     app.run(debug=True)
+""

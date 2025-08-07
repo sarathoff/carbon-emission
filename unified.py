@@ -192,15 +192,14 @@ class AdvancedCarbonExtractor:
             results['inconsistencies'].append("No text could be extracted from the image.")
             return results
         
-        # Enhanced pattern matching
+  
         extracted_items = self._extract_with_patterns(text)
-        
-        # Use NER as backup/validation
+       
         if self.ner_pipeline:
             ner_items = self._extract_with_ner(text)
             extracted_items.extend(ner_items)
         
-        # Process and deduplicate
+      
         processed_data = self._process_extracted_items(extracted_items)
         
         results['extracted_data'] = processed_data
@@ -222,8 +221,7 @@ class AdvancedCarbonExtractor:
     def _extract_with_patterns(self, text: str) -> List[Dict]:
         """Extract using regex patterns"""
         items = []
-        
-        # Enhanced patterns for different energy types
+  
         patterns = [
             # Electricity: 1,234 kWh, 1234.56 kwh
             (r'(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(kwh|kilowatt[- ]?hours?)', 'electricity'),
@@ -296,12 +294,10 @@ class AdvancedCarbonExtractor:
         for item in items:
             energy_type = item['energy_type']
             amount = item['amount']
-            
-            # Calculate emissions
+         
             emission_factor = self.config.EMISSION_FACTORS.get(energy_type, 0)
             emissions = amount * emission_factor
             
-            # Handle duplicates by taking the highest confidence or largest amount
             if energy_type in processed:
                 existing = processed[energy_type]
                 if amount > existing['amount'] or item.get('confidence', 0) > existing.get('confidence', 0):
@@ -494,7 +490,7 @@ def generate_professional_pdf_report(results: List[Dict], analysis: str = None) 
     buffer.seek(0)
     return buffer
 
-# --- Enhanced Streamlit UI ---
+
 def main():
     st.set_page_config(
         page_title="Emissions Audit Pipeline",
@@ -723,6 +719,9 @@ def main():
     else:
         st.info("📤 Upload energy bills or consumption documents to begin the automated emissions accounting process.")
         st.markdown("""
+                    
+        If you not having any documents to upload, you can still explore the features of this application. download the sample documents from the [Drive](https://drive.google.com/drive/folders/1thkld5yx_1ghEgVmm4cAhBhvvABnD2Jn?usp=sharing) and upload them here.
+                    
         ### How it works:
         1. **Upload** images of energy bills, utility statements, or consumption documents
         2. **Extract** data using advanced OCR and AI models

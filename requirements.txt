@@ -7,6 +7,6 @@ plotly
 google-generativeai
 transformers
 python-dotenv
-openpyxl # For Excel writing
+openpyxl 
 torch
 xlsxwriter
